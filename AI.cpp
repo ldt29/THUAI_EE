@@ -12,7 +12,7 @@ extern const bool asynchronous = true;
 
 
 // 选手主动技能，选手 !!必须!! 定义此变量来选择主动技能
-extern const THUAI5::SoftwareType playerSoftware = THUAI5::SoftwareType::Amplification;
+extern const THUAI5::SoftwareType playerSoftware = THUAI5::SoftwareType::Invisible;
 
 // 选手被动技能，选手 !!必须!! 定义此变量来选择被动技能
 extern const THUAI5::HardwareType playerHardware = THUAI5::HardwareType::PowerBank;
@@ -64,10 +64,12 @@ std::shared_ptr<const THUAI5::Prop> uploadprop(std::shared_ptr<const THUAI5::Rob
 double getDtoRobot(std::shared_ptr<const THUAI5::Robot> self, std::shared_ptr<const THUAI5::Robot> other);
 double getDtoProp(std::shared_ptr<const THUAI5::Robot> self, std::shared_ptr<const THUAI5::Prop> prop);
 std::vector<node> dijkstra(int x, int y, int sx, int sy);
-void selfControl(std::shared_ptr<const THUAI5::Robot> self,IAPI& api);
-void moveToProp( std::shared_ptr<const THUAI5::Prop> prop, IAPI& api);
+void selfControl(std::shared_ptr<const THUAI5::Robot> self, IAPI& api);
+void moveToProp(std::shared_ptr<const THUAI5::Prop> prop, IAPI& api);
 double getDirection(uint32_t selfPoisitionX, uint32_t selfPoisitionY, uint32_t aimPositionX, uint32_t aimPositionY);
 bool search(std::shared_ptr<const THUAI5::Robot> self, uint32_t selfPoisitionX, uint32_t selfPoisitionY, uint32_t aimPositionX, uint32_t aimPositionY);
+bool evade(std::shared_ptr<const THUAI5::Robot> self,IAPI& api);
+
 
 //获取角度
 double getDirection(uint32_t selfPoisitionX, uint32_t selfPoisitionY, uint32_t aimPositionX, uint32_t aimPositionY)
@@ -104,9 +106,17 @@ double getDtoRobot(std::shared_ptr<const THUAI5::Robot> self, std::shared_ptr<co
 	auto selfy = self->y;
 	auto otherx = other->x;
 	auto othery = other->y;
-	return sqrt((selfx - otherx) * (selfx - otherx) + (selfy - othery) * (selfy - othery));	
+	return sqrt((selfx - otherx) * (selfx - otherx) + (selfy - othery) * (selfy - othery));
 }
 
+//得到自身到干扰弹的距离
+double getDtoJammer(std::shared_ptr<const THUAI5::Robot> self, std::shared_ptr<const THUAI5::SignalJammer> jammer) {
+	auto selfx = self->x;
+	auto selfy = self->y;
+	auto otherx = jammer->x;
+	auto othery = jammer->y;
+	return sqrt((selfx - otherx) * (selfx - otherx) + (selfy - othery) * (selfy - othery));
+}
 
 //保存探图结果
 static std::vector<std::vector<int> > isWall(50, std::vector<int>(50, 0));
@@ -125,7 +135,7 @@ void isWalling(IAPI& api) {
 //记录目前场上的cpu
 std::vector<std::shared_ptr<const THUAI5::Prop>> cpus;
 //更新场上cpu数据并返回距离自身最近的cpu指针,否则返回空指针
-std::shared_ptr<const THUAI5::Prop> uploadcpu(std::shared_ptr<const THUAI5::Robot> self,std::vector<std::shared_ptr<const THUAI5::Prop>> props) {
+std::shared_ptr<const THUAI5::Prop> uploadcpu(std::shared_ptr<const THUAI5::Robot> self, std::vector<std::shared_ptr<const THUAI5::Prop>> props) {
 	std::vector<std::shared_ptr<const THUAI5::Prop>>().swap(cpus);
 	for (auto prop : props)
 	{
@@ -187,7 +197,7 @@ std::vector<node> dijkstra(int x, int y, int sx, int sy) {
 			flag[the.x - 1][the.y] = 1;
 			q.push(Node[the.x - 1][the.y]);
 		}
-		if (the.y + 1 < 50 && isWall[the.x][the.y + 1] != 1 && (isWall[the.x][the.y + 1]<5 || isWall[the.x][the.y + 1] == 13)  && !flag[the.x][the.y + 1]) {
+		if (the.y + 1 < 50 && isWall[the.x][the.y + 1] != 1 && (isWall[the.x][the.y + 1] < 5 || isWall[the.x][the.y + 1] == 13) && !flag[the.x][the.y + 1]) {
 			Node[the.x][the.y + 1].x = the.x;
 			Node[the.x][the.y + 1].y = the.y + 1;
 			Node[the.x][the.y + 1].prex = the.x;
@@ -213,70 +223,72 @@ std::vector<node> dijkstra(int x, int y, int sx, int sy) {
 	reverse(ans.begin(), ans.end());
 	return ans;
 }
+
 //调整自身位置
-void selfControl(std::shared_ptr<const THUAI5::Robot> self,IAPI& api) {
+void selfControl(std::shared_ptr<const THUAI5::Robot> self, IAPI& api) {
 	int propx = api.CellToGrid(api.GridToCell(self->x));
 	int propy = api.CellToGrid(api.GridToCell(self->y));
-
+	int cellx = api.GridToCell(self->x);
+	int celly = api.GridToCell(self->y);
 	if (propx < self->x) {
 		api.MoveUp(1000 * (self->x - propx) / self->speed);
-		angle = PI;
+		
 	}
 	else {
 		api.MoveDown(1000 * (propx - self->x) / self->speed);
-		angle = 0;
+		
 	}
 	if (propy < self->y) {
 		api.MoveLeft(1000 * (self->y - propy) / self->speed);
-		angle = PI * 1.5;
+		
 	}
 	else {
 		api.MoveRight(1000 * (propy - self->y) / self->speed);
-		angle = PI * 0.5;
+		
 	}
 
-	if (angle==0||angle==PI) {
-		int type = int(api.GetPlaceType(propx - 1, propy-1));
-		if (type == 1||(type>4&&type<13)) {
-			api.MoveRight(5);
-			angle = PI*0.5;
-		}
-		type = int(api.GetPlaceType(propx + 1, propy-1));
+	if (angle > 2 * PI - 0.1 || angle < 0.1 || (angle<PI + 0.1 && angle > PI - 0.1)) {
+		int type = int(api.GetPlaceType(cellx - 1, celly - 1));
 		if (type == 1 || (type > 4 && type < 13)) {
 			api.MoveRight(5);
-			angle = PI*0.5;
+
 		}
-		type = int(api.GetPlaceType(propx - 1, propy + 1));
+		type = int(api.GetPlaceType(cellx + 1, celly - 1));
+		if (type == 1 || (type > 4 && type < 13)) {
+			api.MoveRight(5);
+
+		}
+		type = int(api.GetPlaceType(cellx - 1, celly + 1));
 		if (type == 1 || (type > 4 && type < 13)) {
 			api.MoveLeft(5);
-			angle = PI*1.5;
+
 		}
-		type = int(api.GetPlaceType(propx + 1, propy + 1));
+		type = int(api.GetPlaceType(cellx + 1, celly + 1));
 		if (type == 1 || (type > 4 && type < 13)) {
 			api.MoveLeft(5);
-			angle = PI*1.5;
+
 		}
 	}
 	else {
-		int type = int(api.GetPlaceType(propx-1, propy + 1));
+		int type = int(api.GetPlaceType(cellx - 1, celly + 1));
 		if (type == 1 || (type > 4 && type < 13)) {
 			api.MoveDown(5);
-			angle = 0;
+		
 		}
-		type = int(api.GetPlaceType(propx-1, propy - 1));
+		type = int(api.GetPlaceType(cellx - 1, celly - 1));
 		if (type == 1 || (type > 4 && type < 13)) {
 			api.MoveDown(5);
-			angle = 0;
+			
 		}
-		type = int(api.GetPlaceType(propx + 1, propy + 1));
+		type = int(api.GetPlaceType(cellx + 1, celly + 1));
 		if (type == 1 || (type > 4 && type < 13)) {
 			api.MoveUp(5);
-			angle = PI;
+			
 		}
-		type = int(api.GetPlaceType(propx + 1, propy - 1));
+		type = int(api.GetPlaceType(cellx + 1, celly - 1));
 		if (type == 1 || (type > 4 && type < 13)) {
 			api.MoveUp(5);
-			angle = PI;
+			
 		}
 	}
 }
@@ -288,27 +300,57 @@ void moveToProp(std::shared_ptr<const THUAI5::Prop> prop, IAPI& api) {
 	int selfy = api.GridToCell(self->y);
 	int propx = api.GridToCell(prop->x);
 	int propy = api.GridToCell(prop->y);
-	std::vector<node> L = dijkstra(selfx,selfy,propx,propy);
+	std::vector<node> L = dijkstra(selfx, selfy, propx, propy);
 	if (L.size()) {
 		auto nd = L[0];
 		if (nd.x < selfx) {
 			api.MoveUp(1000000 / self->speed);
 			angle = PI;
+			
 		}
 		else if (nd.x > selfx) {
 			api.MoveDown(1000000 / self->speed);
 			angle = 0;
+			
 		}
 		else if (nd.y < selfy) {
 			api.MoveLeft(1000000 / self->speed);
 			angle = PI * 1.5;
+			
 		}
 		else if (nd.y > selfy) {
 			api.MoveRight(1000000 / self->speed);
 			angle = PI * 0.5;
+			
 		}
 	}
 
+}
+
+//躲闪
+bool evade(std::shared_ptr<const THUAI5::Robot> self, IAPI& api) {
+	bool flag = false;
+	auto jammers = api.GetSignalJammers();
+	double minDis = 9000;
+	std::shared_ptr<const THUAI5::SignalJammer> Mjammer = nullptr;
+	for (auto jammer : jammers) {
+		if (jammer->parentTeamID == self->teamID) {
+			continue;
+		}
+		int dis = getDtoJammer(self, jammer);
+		if (dis < minDis) {
+			minDis = dis;
+			Mjammer = jammer;
+		}
+	}
+	if (Mjammer != nullptr) {
+		int e = getDirection(Mjammer->x, Mjammer->y, self->x, self->y);
+		if (abs(Mjammer->facingDirection - e) < 0.2) {
+			api.MovePlayer(1000000 / self->speed, Mjammer->facingDirection - PI / 2);
+			flag = true;
+		}
+	}
+	return flag;
 }
 
 //判断是否攻击
@@ -339,9 +381,8 @@ void attackaround(IAPI& api, std::shared_ptr<const THUAI5::Robot> self)
 				{
 					double e = getDirection(self->x, self->y, enemy[i].getnextx(), enemy[i].getnexty());//定角度
 					api.Attack(e);
-					api.Attack(e);
-					api.Attack(e);
-					api.Attack(e);
+					api.Attack(e + 0.2);
+					api.Attack(e - 0.2);
 					api.Attack(e);
 				}
 			}
@@ -357,29 +398,47 @@ void AI::play(IAPI& api)
 	}
 	//得到个人信息
 	auto self = api.GetSelfInfo();
+	
+	//使用cpu
+	if (self->cpuNum > 10) {
+		api.UseCPU(self->cpuNum);
+	}
+
+	api.Wait();
+	std::cout << self->isResetting;
+
+	attackaround(api, self);
+	api.UseCommonSkill();
+
+
+	//随机攻击
+	if (self->signalJammerNum > 4) {
+		api.Attack(getDirection(self->x, self->y, 25 * 1000, 25 * 1000));
+	}
+
+	//躲闪
+	if (evade(self, api)) {
+		return;
+	}
+
 	//调整
 	selfControl(self, api);
 	//获取场上的道具信息
 	auto props = api.GetProps();
 	auto cpu = THUAI5::PropType::CPU;
 	//最近的cpu
-	auto tocpu = uploadcpu(self, props);
+	/*auto tocpu = uploadcpu(self, props);
 	if (tocpu != nullptr) {
 		//捡cpu
 		api.Pick(cpu);
-		moveToProp(tocpu,api);
+		moveToProp(tocpu, api);
 		return;
-	}
+	}*/
 	//最近的prop
 	auto toprop = uploadprop(self, props);
 	if (toprop != nullptr) {
-		if(api.Pick(toprop->type))
+		if (api.Pick(toprop->type))
 			api.UseProp();
 		moveToProp(toprop, api);
 	}
-	api.Wait();
-	std::cout << self->isResetting;
-
-	attackaround(api, self);
-	api.UseCommonSkill();
 }
