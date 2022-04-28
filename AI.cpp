@@ -60,7 +60,7 @@ public:
 std::set<node> PofOtherRobot;
 void isWalling(IAPI& api);
 std::shared_ptr<const THUAI5::Prop> uploadcpu(std::shared_ptr<const THUAI5::Robot> self, std::vector<std::shared_ptr<const THUAI5::Prop>> props);
-std::shared_ptr<const THUAI5::Prop> uploadprop(std::shared_ptr<const THUAI5::Robot> self, std::vector<std::shared_ptr<const THUAI5::Prop>> props);
+std::shared_ptr<const THUAI5::Prop> uploadprop(IAPI& api,std::shared_ptr<const THUAI5::Robot> self, std::vector<std::shared_ptr<const THUAI5::Prop>> props);
 double getDtoRobot(std::shared_ptr<const THUAI5::Robot> self, std::shared_ptr<const THUAI5::Robot> other);
 double getDtoProp(std::shared_ptr<const THUAI5::Robot> self, std::shared_ptr<const THUAI5::Prop> prop);
 std::vector<node> dijkstra(int x, int y, int sx, int sy);
@@ -69,7 +69,16 @@ void moveToProp(std::shared_ptr<const THUAI5::Prop> prop, IAPI& api);
 double getDirection(uint32_t selfPoisitionX, uint32_t selfPoisitionY, uint32_t aimPositionX, uint32_t aimPositionY);
 bool search(std::shared_ptr<const THUAI5::Robot> self, uint32_t selfPoisitionX, uint32_t selfPoisitionY, uint32_t aimPositionX, uint32_t aimPositionY);
 bool evade(std::shared_ptr<const THUAI5::Robot> self,IAPI& api);
+bool ismove(THUAI5::PlaceType type);
 
+//判断某地是否可以移动
+bool ismove(THUAI5::PlaceType Type) {
+	int type = int(Type);
+	if (type == 1 || (type > 4 && type < 13)) {
+		return false;
+	}
+	return true;
+}
 
 //获取角度
 double getDirection(uint32_t selfPoisitionX, uint32_t selfPoisitionY, uint32_t aimPositionX, uint32_t aimPositionY)
@@ -101,7 +110,7 @@ double getDtoProp(std::shared_ptr<const THUAI5::Robot> self, std::shared_ptr<con
 }
 
 //得到自身到机器人的距离
-double getDtoRobot(std::shared_ptr<const THUAI5::Robot> self, std::shared_ptr<const THUAI5::Prop> other) {
+double getDtoRobot(std::shared_ptr<const THUAI5::Robot> self, std::shared_ptr<const THUAI5::Robot> other) {
 	auto selfx = self->x;
 	auto selfy = self->y;
 	auto otherx = other->x;
@@ -156,13 +165,25 @@ std::shared_ptr<const THUAI5::Prop> uploadcpu(std::shared_ptr<const THUAI5::Robo
 
 
 //更新场上prop数据并返回距离自身最近的prop指针,否则返回空指针
-std::shared_ptr<const THUAI5::Prop> uploadprop(std::shared_ptr<const THUAI5::Robot> self, std::vector<std::shared_ptr<const THUAI5::Prop>> props) {
+std::shared_ptr<const THUAI5::Prop> uploadprop(IAPI& api, std::shared_ptr<const THUAI5::Robot> self, std::vector<std::shared_ptr<const THUAI5::Prop>> props) {
 	double min = 1e6;
 	std::shared_ptr<const THUAI5::Prop> ans = nullptr;
 	for (auto prop : props) {
 		if (getDtoProp(self, prop) < min) {
+			int curmin = getDtoProp(self, prop);
+			auto robots = api.GetRobots();
+			int flag = 0;
+			for (auto robot : robots) {
+				if (robot->teamID != self->teamID) {
+					continue;
+				}
+				if (getDtoProp(robot, prop) < curmin-1.0) {
+						flag = 1;
+				}
+			}
+			if (flag == 1)continue;
 			ans = prop;
-			min = getDtoProp(self, prop);
+			min = curmin;
 		}
 	}
 	return ans;
@@ -230,7 +251,7 @@ void selfControl(std::shared_ptr<const THUAI5::Robot> self, IAPI& api) {
 	int propy = api.CellToGrid(api.GridToCell(self->y));
 	int cellx = api.GridToCell(self->x);
 	int celly = api.GridToCell(self->y);
-	if (propx < self->x) {
+	/*if (propx < self->x) {
 		api.MoveUp(1000 * (self->x - propx) / self->speed);
 		
 	}
@@ -245,49 +266,52 @@ void selfControl(std::shared_ptr<const THUAI5::Robot> self, IAPI& api) {
 	else {
 		api.MoveRight(1000 * (propy - self->y) / self->speed);
 		
-	}
-
+	}*/
+	auto type1 = api.GetPlaceType(cellx - 1, celly - 1);
+	auto type2 = api.GetPlaceType(cellx + 1, celly - 1);
+	auto type3 = api.GetPlaceType(cellx - 1, celly + 1);
+	auto type4 = api.GetPlaceType(cellx + 1, celly + 1);
+	auto type5 = api.GetPlaceType(cellx, celly + 1);
+	auto type6 = api.GetPlaceType(cellx, celly - 1);
+	auto type7 = api.GetPlaceType(cellx + 1, celly);
+	auto type8 = api.GetPlaceType(cellx - 1, celly);
 	if (angle > 2 * PI - 0.1 || angle < 0.1 || (angle<PI + 0.1 && angle > PI - 0.1)) {
-		int type = int(api.GetPlaceType(cellx - 1, celly - 1));
-		if (type == 1 || (type > 4 && type < 13)) {
-			api.MoveRight(5);
+		if (!ismove(type1) && ismove(type2) && ismove(type3) && ismove(type4) && ismove(type5) && ismove(type6) && ismove(type7) && ismove(type8)) {
+			api.MoveRight(100);
 
 		}
-		type = int(api.GetPlaceType(cellx + 1, celly - 1));
-		if (type == 1 || (type > 4 && type < 13)) {
-			api.MoveRight(5);
+		if (ismove(type1) && !ismove(type2) && ismove(type3) && ismove(type4) && ismove(type5) && ismove(type6) && ismove(type7) && ismove(type8)) {
+			api.MoveRight(100);		
 
 		}
-		type = int(api.GetPlaceType(cellx - 1, celly + 1));
-		if (type == 1 || (type > 4 && type < 13)) {
-			api.MoveLeft(5);
-
+		if (ismove(type1) && ismove(type2) && !ismove(type3) && ismove(type4) && ismove(type5) && ismove(type6) && ismove(type7) && ismove(type8)) {
+			api.MoveLeft(100);
+			
 		}
-		type = int(api.GetPlaceType(cellx + 1, celly + 1));
-		if (type == 1 || (type > 4 && type < 13)) {
-			api.MoveLeft(5);
-
+		if (ismove(type1) && ismove(type2) && ismove(type3) && !ismove(type4) && ismove(type5) && ismove(type6) && ismove(type7) && ismove(type8)) {
+			api.MoveLeft(100);
+			
 		}
 	}
 	else {
-		int type = int(api.GetPlaceType(cellx - 1, celly + 1));
-		if (type == 1 || (type > 4 && type < 13)) {
-			api.MoveDown(5);
 		
-		}
-		type = int(api.GetPlaceType(cellx - 1, celly - 1));
-		if (type == 1 || (type > 4 && type < 13)) {
-			api.MoveDown(5);
+		if (ismove(type1) && ismove(type2) && !ismove(type3) && ismove(type4) && ismove(type5) && ismove(type6) && ismove(type7) && ismove(type8)) {
+			api.MoveDown(100);
 			
 		}
-		type = int(api.GetPlaceType(cellx + 1, celly + 1));
-		if (type == 1 || (type > 4 && type < 13)) {
-			api.MoveUp(5);
+		
+		if (!ismove(type1) && ismove(type2) && ismove(type3) && ismove(type4) && ismove(type5) && ismove(type6) && ismove(type7) && ismove(type8)) {
+			api.MoveDown(100);;
 			
 		}
-		type = int(api.GetPlaceType(cellx + 1, celly - 1));
-		if (type == 1 || (type > 4 && type < 13)) {
-			api.MoveUp(5);
+		
+		if (ismove(type1) && ismove(type2) && ismove(type3) && !ismove(type4) && ismove(type5) && ismove(type6) && ismove(type7) && ismove(type8)) {
+			api.MoveUp(100);
+			
+		}
+		
+		if (ismove(type1) && !ismove(type2) && ismove(type3) && ismove(type4) && ismove(type5) && ismove(type6) && ismove(type7) && ismove(type8)) {
+			api.MoveUp(100);
 			
 		}
 	}
@@ -345,8 +369,8 @@ bool evade(std::shared_ptr<const THUAI5::Robot> self, IAPI& api) {
 	}
 	if (Mjammer != nullptr) {
 		int e = getDirection(Mjammer->x, Mjammer->y, self->x, self->y);
-		if (abs(Mjammer->facingDirection - e) < 0.2) {
-			api.MovePlayer(1000000 / self->speed, Mjammer->facingDirection - PI / 2);
+		if (abs(Mjammer->facingDirection - e) < 0.5) {
+			api.MovePlayer(1000000 / self->speed, e);
 			flag = true;
 		}
 	}
@@ -383,7 +407,7 @@ void attackaround(IAPI& api, std::shared_ptr<const THUAI5::Robot> self)
 					api.Attack(e);
 					api.Attack(e + 0.2);
 					api.Attack(e - 0.2);
-					api.Attack(e);
+
 				}
 			}
 		}
@@ -412,7 +436,7 @@ void AI::play(IAPI& api)
 
 
 	//随机攻击
-	if (self->signalJammerNum > 4) {
+	if (self->signalJammerNum > 3) {
 		api.Attack(getDirection(self->x, self->y, 25 * 1000, 25 * 1000));
 	}
 
@@ -435,7 +459,7 @@ void AI::play(IAPI& api)
 		return;
 	}*/
 	//最近的prop
-	auto toprop = uploadprop(self, props);
+	auto toprop = uploadprop(api ,self, props);
 	if (toprop != nullptr) {
 		if (api.Pick(toprop->type))
 			api.UseProp();
