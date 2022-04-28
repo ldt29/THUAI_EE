@@ -12,10 +12,10 @@ extern const bool asynchronous = true;
 
 
 // 选手主动技能，选手 !!必须!! 定义此变量来选择主动技能
-extern const THUAI5::SoftwareType playerSoftware = THUAI5::SoftwareType::Invisible;
+extern const THUAI5::SoftwareType playerSoftware = THUAI5::SoftwareType::PowerEmission;
 
 // 选手被动技能，选手 !!必须!! 定义此变量来选择被动技能
-extern const THUAI5::HardwareType playerHardware = THUAI5::HardwareType::PowerBank;
+extern const THUAI5::HardwareType playerHardware = THUAI5::HardwareType::EnergyConvert;
 
 namespace
 {
@@ -178,6 +178,7 @@ std::shared_ptr<const THUAI5::Prop> uploadprop(IAPI& api, std::shared_ptr<const 
 					continue;
 				}
 				if (getDtoProp(robot, prop) < curmin-1.0) {
+					if(getDtoRobot(self, robot)<2000|| getDtoProp(robot, prop)<curmin/2.0)
 						flag = 1;
 				}
 			}
@@ -370,7 +371,8 @@ bool evade(std::shared_ptr<const THUAI5::Robot> self, IAPI& api) {
 	if (Mjammer != nullptr) {
 		int e = getDirection(Mjammer->x, Mjammer->y, self->x, self->y);
 		if (abs(Mjammer->facingDirection - e) < 0.5) {
-			api.MovePlayer(1000000 / self->speed, e);
+			api.MovePlayer(1000000 / self->speed, e - PI / 2);
+			api.MovePlayer(2000000 / self->speed, e);
 			flag = true;
 		}
 	}
@@ -424,7 +426,7 @@ void AI::play(IAPI& api)
 	auto self = api.GetSelfInfo();
 	
 	//使用cpu
-	if (self->cpuNum > 10) {
+	if (self->cpuNum > 2){
 		api.UseCPU(self->cpuNum);
 	}
 
